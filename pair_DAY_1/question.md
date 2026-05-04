@@ -8,9 +8,9 @@
 
 In my Week 10 sales agent (`llm_client.py`, line 79), I strip Qwen3's `<think>` reasoning-trace tokens after generation — the model produces them, I throw them away before passing the response to the next agent step. These think tokens caused 60% of my baseline's max-steps failures by inflating turn counts.
 
-**Are Qwen3's `<think>` reasoning-trace tokens included in the `completion_tokens` count returned by the API, do they occupy KV cache slots during generation, and am I paying for tokens I strip and discard?**
+**Are Qwen3's `<think>` reasoning-trace tokens billed as output tokens when served through OpenRouter, and should I suppress them at inference time rather than strip them after generation?**
 
-If they are billed as output tokens at $8/M, then my cost-per-task ($0.15) is correct but I'm wasting money on tokens I never use. If they also occupy KV cache during generation, they inflate the context window for subsequent tokens and slow down decode. Either way, the engineering response changes: suppress at inference time (e.g., `think_mode=off` or logit bias) rather than post-process.
+A satisfying answer would tell me: (1) whether `completion_tokens` in the API response includes think tokens or only the visible output, and (2) whether suppressing think-token generation (via `think_mode=off`, provider parameters, or model selection) is the correct engineering response — as opposed to my current approach of generating them and throwing them away. The adjacent concept that completes the picture is whether think tokens occupy KV cache slots during generation, inflating context for subsequent tokens and slowing decode — but the billing answer alone closes my gap.
 
 ## Context — Why This Requires Understanding KV Cache Mechanics
 
@@ -20,11 +20,11 @@ This question sits inside a larger inference-time cost structure I cannot fully 
 
 Knowing this would let me revise:
 
-- **`llm_client.py`** (Week 10) — Line 79 strips `<think>` blocks after generation. If think tokens are billed and occupy KV cache, I should suppress them at inference time rather than post-processing — a direct code change.
+- **`llm_client.py`** (Week 10) — Line 79 strips `<think>` blocks after generation. If think tokens are billed, I should suppress them at inference time rather than post-processing — a direct code change.
 - **`memo.md`** (Week 10) — The CFO memo's cost-per-task derivation ($0.15) and cost-per-qualified-lead ($0.07) assume the API's token counts are the full picture. If discarded think tokens are billed, the memo needs a "hidden cost" line item.
 - **`eval/method.md`** (Week 10) — The cost analysis table comparing baseline vs mechanism ($0.53 vs $0.15) would gain a think-token waste breakdown showing how much of each cost is reasoning tokens that never reach the user.
 - **`probes/target_failure_mode.md`** (Week 10) — The revenue impact calculation ($50K–$190K/mo from reasoning loops) should include the actual token cost of those wasted think blocks, not just the turn-count cost.
 
 ## Why This Matters Beyond My Work
 
-Every FDE running multi-turn agents through API providers (OpenRouter, Together, etc.) faces the same invisible cost structure. Most practitioners report `completion_tokens` without knowing whether reasoning-trace tokens are inside that number. The difference between "tokens used" and "tokens billed" — and whether those hidden tokens also consume KV cache capacity — determines whether a production agent's unit economics are viable. This is especially acute for reasoning models (Qwen3, DeepSeek-R1, o1) where think tokens can be 2–5x the visible output.
+Every FDE running multi-turn agents through API providers (OpenRouter, Together, etc.) faces the same invisible cost structure. Most practitioners report `completion_tokens` without knowing whether reasoning-trace tokens are inside that number. The difference between "tokens used" and "tokens billed" determines whether a production agent's unit economics are viable. This is especially acute for reasoning models (Qwen3, DeepSeek-R1, o1) where think tokens can be 2–5x the visible output — and the default behaviour of most agent frameworks is to generate-then-strip rather than suppress at source.
