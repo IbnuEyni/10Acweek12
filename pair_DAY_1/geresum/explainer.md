@@ -33,6 +33,7 @@ Wall-clock latency from request-send to response-read contains four sequential c
 For `gpt-4.1-mini` with 400–600 input tokens, prefill is fast (~5 ms). The question is whether decode or network dominates. This depends entirely on **how many tokens the model actually generates** — the number Geresum has never inspected.
 
 **Scenario A: Model generates ~50–80 tokens (likely for structured JSON output)**
+
 ```
 Network:   30 ms
 Queue:     10 ms
@@ -41,9 +42,11 @@ Decode:    25 ms  (70 tokens × 0.35 ms/token)
 ―――――――――――――――
 Total:     70 ms  ← close to 106 ms with some queue variance
 ```
+
 → **Network-dominated.** Neither shortening prompts nor reducing max_tokens helps. The memo claim is fine but should state "dominated by network round-trip."
 
 **Scenario B: Model generates ~200+ tokens (verbose responses hitting near the cap)**
+
 ```
 Network:   30 ms
 Queue:      5 ms
@@ -52,6 +55,7 @@ Decode:    80 ms  (220 tokens × 0.35 ms/token)
 ―――――――――――――――
 Total:    120 ms  ← close to 106 ms
 ```
+
 → **Decode-dominated.** Reducing `max_completion_tokens` or prompting for shorter responses would cut latency.
 
 **The answer: instrument `usage.completion_tokens` first.** Until Geresum knows the actual output token count, he cannot choose between the three levers.
@@ -78,6 +82,7 @@ if result.usage:
 ```
 
 After running 10 tasks with this logging, Geresum will see:
+
 - If `completion_tokens` is consistently 50–80 → Scenario A (network-dominated)
 - If `completion_tokens` is consistently 200+ → Scenario B (decode-dominated)
 
@@ -88,6 +93,7 @@ This single measurement resolves which lever to pull.
 `max_completion_tokens=350` is a **ceiling**, not a request. The model stops when it hits a stop token (end of response) OR the max — whichever comes first. If the model naturally produces 70 tokens of JSON, setting max to 350 or 150 makes zero difference to latency. The model already stopped at 70.
 
 Reducing `max_completion_tokens` only cuts latency if:
+
 1. The model is actually hitting the cap (generating exactly 350 tokens, getting cut off)
 2. AND you're okay with truncated responses
 
