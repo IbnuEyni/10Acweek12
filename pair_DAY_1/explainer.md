@@ -64,7 +64,7 @@ To verify whether caching is active, check the API response for `cache_read_inpu
 
 **1. Prompt structure determines cacheability.** The system prompt must come first and remain unchanged. If Mistire injects dynamic content (timestamps, user IDs) into the system prompt, he breaks the prefix. Dynamic content should go in the user message, after the fixed prefix.
 
-**2. Multi-turn history grows the non-cached portion.** Even with perfect prefix caching on the system prompt, the conversation history after it grows every turn and is never cached (it changes each turn). This is why Amir's policy-aware prompting — which reduces turn count — saves cost even when prefix caching is active.
+**2. Multi-turn history grows the non-cached portion.** Even with perfect prefix caching on the system prompt, the conversation history after it grows every turn and is never cached (it changes each turn). This is why policy-aware prompting — which reduces turn count — saves cost even when prefix caching is active.
 
 **3. Provider routing is the hidden variable.** When accessing models through OpenRouter, the request may be routed to different underlying providers (Together, Fireworks, Lepton, etc.) across calls. Each provider has its own GPU fleet and cache state. Consistent routing (pinning to one provider) increases cache hit rate.
 

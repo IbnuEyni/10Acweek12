@@ -40,12 +40,12 @@ But only if the cache is warm and you hit the same GPU.
 5 things that break the cache and force full recompute:
 
 1. Any token change in the prefix (even one space)
-2. Request routed to a different GPU
+2. Request hits a different GPU at the provider's data center (their load balancer picks — you have no control)
 3. Cache evicted under memory pressure (seconds-minutes TTL)
 4. Provider doesn't implement prefix caching
 5. Different model = different cache
 
-#2 is the most common miss in production.
+#2 is the most common miss in production. The KV cache lives on the provider's GPUs, not your machine.
 
 ## Tweet 5
 
