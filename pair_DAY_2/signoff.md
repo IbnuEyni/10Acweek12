@@ -1,47 +1,36 @@
-# Sign-Off — Day 2
+# Sign-off — Day 2
 
-## Amir's sign-off on Ephrata's explainer (for Amir's question)
+**Asker:** Amir Ahmedin  
+**Pair:** Ephrata Nebiyu  
+**Topic:** Agent and tool-use internals — constrained decoding and function-calling mechanics  
+**Grounding commit:** `10Acweek10/agent/llm_client.py` — added `response_format` for structured output (full diff in [`grounding_commit.md`](grounding_commit.md))
 
-**Asker:** Amir Ahmedin
-**Explainer:** Ephrata Nebiyu
-**Date:** Day 2, Week 12
-**Judgment:** Closed ✓
+## Status: CLOSED
 
-### What I understand now that I did not before
+Ephrata's explainer closed the gap completely.
 
-Before this explainer, I treated "function-calling" as a single thing — either it's constrained decoding or it's prompt injection. I couldn't explain why my `complete_json()` fallback chain sometimes works perfectly and sometimes catches real parse failures.
+## What I understand now that I did not before
 
-Now I understand there are **four distinct levels**, not two:
+I went into Day 2 asking what the model does differently at the token level during function-calling vs when I prompt it to emit JSON. I was thinking in binary: either it's constrained decoding (guaranteed valid) or it's prompt injection (hope for the best). Ephrata showed me there are **four distinct levels**, and my engineering decision depends on which level my provider operates at.
 
-1. **Plain prompted JSON** (my current approach) — full vocabulary available at every step. Model can emit fences, think blocks, wrong keys. My fallback chain is correct and necessary.
+First, the four-level taxonomy:
+1. **Plain prompted JSON** (my current approach) — full vocabulary at every step. Model can emit fences, think blocks, wrong keys. My fallback chain is correct and necessary.
+2. **JSON mode** (`response_format: json_object`) — guarantees valid JSON *syntax* but not my specific schema. Wrong keys, wrong value types still possible.
+3. **Tool calling without strict** — provider adds protocol structure + model is fine-tuned on tool-call patterns. Learned behavior, not proof-by-construction.
+4. **Tool calling with strict** (`strict: true`) — constrained decoding at the token level. Illegal schema-breaking tokens are masked before sampling. My fallback chain is dead code.
 
-2. **JSON mode** (`response_format: json_object`) — guarantees valid JSON syntax but NOT my specific schema. Model can still return wrong keys or wrong value types. My fallback chain is partially needed (syntax is safe, schema is not).
+Second, the key insight: "The fact that you need to strip fences, remove think blocks, and salvage substrings is itself the clue — those repairs only make sense if the model had permission to emit tokens outside the intended object." My repair code is *evidence* of the decoding mode I'm operating in, not just defensive engineering. It's diagnostic.
 
-3. **Tool calling without strict** — provider adds protocol structure + model is trained on tool-call patterns. Much better than prompting, but still learned behavior, not proof-by-construction. Fallback chain is mostly unnecessary but not dead code.
+Third, the one-sentence version: **"A prompt can encourage a model to output the right key. A decoder constraint can forbid it from outputting the wrong key. For workflow safety, forbidding beats encouraging."**
 
-4. **Tool calling with strict structured outputs** (`strict: true`) — constrained decoding at the token level. Illegal schema-breaking tokens are masked before sampling. My fallback chain IS dead code for this mode.
+Fourth, the OpenRouter relay question: since OpenRouter may route to any provider (Fireworks, Together, Lepton), each operating at a different level, I should treat deletion of the fallback chain as a **testable hypothesis** — run the eval set on both paths (with and without `response_format`), compare parse failures, and only remove the fallback if the strict path produces zero failures on my specific deployment route.
 
-The key insight Ephrata named: "The fact that you need to strip fences, remove think blocks, and salvage substrings is itself the clue — those repairs only make sense if the model had permission to emit tokens outside the intended object." My repair code is *evidence* of the decoding mode, not just defensive engineering.
+## What changed in my Week 11 portfolio
 
-The revised explainer also addressed the OpenRouter relay question honestly: I should treat deletion of the fallback chain as a **testable hypothesis**, not an assumption. The concrete test procedure (run eval set on both paths, compare parse/key/type failures) gives me an immediate next step.
+- Added `response_format` parameter to the `complete()` call inside `complete_json()` in `agent/llm_client.py`. When the provider supports strict mode, invalid JSON is structurally impossible. The fallback chain remains for providers at levels 1-3.
 
-The one-sentence version I'll carry forward: **"A prompt can encourage a model to output the right key. A decoder constraint can forbid it from outputting the wrong key. For workflow safety, forbidding beats encouraging."**
+- Annotated Probe 6.2 in `probes/failure_taxonomy.md` (JSON parse failures) as **provider-dependent**: architecturally impossible on strict-mode providers (level 4), possible on fine-tuning-only providers (levels 1-3). The probe remains in the taxonomy but with a note explaining when it's eliminated by construction vs when it requires the fallback chain.
 
----
+- Added a note to `eval/method.md` mechanism design section: "The policy-aware prompting approach operates at Level 1 (plain prompted JSON). A third ablation variant — structured output via tool-calling (Level 4) — would eliminate Probe 6.2 entirely but requires provider support verification on the specific OpenRouter route used in production."
 
-## Ephrata's sign-off on Amir's explainer (for Ephrata's question)
-
-**Asker:** Ephrata Nebiyu
-**Explainer:** Amir Ahmedin
-**Date:** Day 2, Week 12
-**Judgment:** Closed ✓
-
-### What Ephrata understands now that he did not before
-
-The real value of the centralized orchestrator is not just "keeping the flow organized," but enforcing system-wide invariants that distributed handlers cannot reliably maintain from local context alone. The most useful part: tool eligibility is a function of **authoritative global lifecycle state**, not of the isolated event a single handler happens to observe, and `_transition()` + `_is_duplicate_event()` + `allowed_next_channels()` together form the core policy surface.
-
-Ephrata can now explain why retries, duplicate delivery, and partial failures become dangerous when policy is distributed: each handler sees only a projection of state, while the orchestrator can make one consistent decision against the shared state record.
-
-### Why this is closed
-
-The updated explainer gave the mechanism he was missing: the orchestrator is the policy layer that protects authoritative shared state, monotonic transitions, duplicate suppression, and centralized tool eligibility against the partial local views that distributed handlers would act on. Connected back to the real repo: `_transition()` enforces forward lifecycle movement, `_is_duplicate_event()` protects against replay when identifiable webhook deliveries repeat, and `allowed_next_channels()` keeps channel eligibility tied to global state rather than local handler context. That is enough to defend the architecture unaided.
+- Marked Oracle Forge `agent/kb_injector.py` for review: if the DAB scaffold uses function-calling for `query_db` and `execute_python`, understanding how tool descriptions influence selection would let me write better tool descriptions rather than stuffing context into the system prompt.
